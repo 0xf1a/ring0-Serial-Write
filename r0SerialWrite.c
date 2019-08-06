@@ -1,37 +1,21 @@
-#include <ntifs.h>
-#include <ntddser.h>
+#include "r0SerialWrite.h"
 
-NTSYSAPI
-NTSTATUS
-NTAPI
-ObReferenceObjectByName(
-	_In_ PUNICODE_STRING ObjectName,
-	_In_ ULONG Attributes,
-	_In_opt_ PACCESS_STATE AccessState,
-	_In_opt_ ACCESS_MASK DesiredAccess,
-	_In_ POBJECT_TYPE ObjectType,
-	_In_ KPROCESSOR_MODE AccessMode,
-	_Inout_opt_ PVOID ParseContext,
-	_Out_ PVOID* Object
-);
-
-extern POBJECT_TYPE* IoDriverObjectType;
 HANDLE hThread = NULL;
 HANDLE hSerial = NULL;
 
-BOOLEAN CompareDesc(_In_ PDEVICE_OBJECT dev, _In_ LPCWSTR desc)
+BOOLEAN CompareDescription(_In_ PDEVICE_OBJECT dev, _In_ LPCWSTR desc)
 {
 	BOOLEAN isFound = FALSE;
-	DEVICE_REGISTRY_PROPERTY property = DevicePropertyDeviceDescription;
+	DEVICE_REGISTRY_PROPERTY devProp = DevicePropertyDeviceDescription;
 	ULONG resultLength = 0;
 
-	NTSTATUS status = IoGetDeviceProperty(dev, property, 0, NULL, &resultLength);
+	NTSTATUS status = IoGetDeviceProperty(dev, devProp, 0, NULL, &resultLength);
 	if (status == STATUS_BUFFER_TOO_SMALL && resultLength)
 	{
 		LPWSTR valueInfo = ExAllocatePool(NonPagedPool, resultLength);
 		if (valueInfo)
 		{
-			status = IoGetDeviceProperty(dev, property, resultLength, valueInfo, &resultLength);
+			status = IoGetDeviceProperty(dev, devProp, resultLength, valueInfo, &resultLength);
 			if (NT_SUCCESS(status))
 			{
 				if (_wcsicmp(valueInfo, desc) == 0)
@@ -46,19 +30,19 @@ BOOLEAN CompareDesc(_In_ PDEVICE_OBJECT dev, _In_ LPCWSTR desc)
 
 	return isFound;
 }
-PDEVICE_OBJECT GetDevicePdo(_In_ LPCWSTR desc)
+PDEVICE_OBJECT GetDevicePhysObj(_In_ LPCWSTR desc)
 {
 	PDEVICE_OBJECT pRet = NULL;
 	PDRIVER_OBJECT pDriverObj = NULL;
 	PDEVICE_OBJECT pDeviceObj = NULL;
-	UNICODE_STRING usDriver = RTL_CONSTANT_STRING(L"\\Driver\\usbccgp"); //usbccgp //USBHUB3
+	UNICODE_STRING usDrv = RTL_CONSTANT_STRING(L"\\Driver\\usbccgp"); //usbccgp //USBHUB3
 
-	NTSTATUS status = ObReferenceObjectByName(&usDriver, OBJ_CASE_INSENSITIVE, NULL, 0, *IoDriverObjectType, KernelMode, NULL, &pDriverObj);
+	NTSTATUS status = ObReferenceObjectByName(&usDrv, OBJ_CASE_INSENSITIVE, NULL, 0, *IoDriverObjectType, KernelMode, NULL, &pDriverObj);
 	if (NT_SUCCESS(status))
 	{
 		for (pDeviceObj = pDriverObj->DeviceObject; pDeviceObj; pDeviceObj = pDeviceObj->NextDevice)
 		{
-			if (CompareDesc(pDeviceObj, desc) && pDeviceObj->AttachedDevice)
+			if (CompareDescription(pDeviceObj, desc) && pDeviceObj->AttachedDevice)
 			{
 				pRet = pDeviceObj->AttachedDevice;
 				break;
@@ -105,7 +89,7 @@ VOID TestThread()
 	UCHAR buffer[4] = "kek";
 	IO_STATUS_BLOCK iosb;
 	NTSTATUS status = ZwWriteFile(hSerial, NULL, NULL, NULL, &iosb, buffer, sizeof(buffer), NULL, NULL);
-	DbgPrintEx(0, 0, "[dbg] Write: 0x%08x\n", status);
+	DbgPrintEx(0, 0, "[dbg] Write status: 0x%08x\n", status);
 }
 VOID DriverUnload(_In_ PDRIVER_OBJECT pDrvObj)
 {
@@ -124,7 +108,7 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT pDrvObj, _In_ PUNICODE_STRING pRegPath)
 	pDrvObj->DriverUnload = DriverUnload;
 	NTSTATUS status = STATUS_UNSUCCESSFUL;
 
-	PDEVICE_OBJECT pSerial = GetDevicePdo(L"Arduino Leonardo");
+	PDEVICE_OBJECT pSerial = GetDevicePhysObj(L"Arduino Leonardo");
 	if (!pSerial) { return status; }
 	DbgPrintEx(0, 0, "[dbg] pSerial: 0x%p\n", pSerial);
 
@@ -132,7 +116,7 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT pDrvObj, _In_ PUNICODE_STRING pRegPath)
 	DbgPrintEx(0, 0, "[dbg] hSerial: 0x%p\n", hSerial);
 
 	status = PsCreateSystemThread(&hThread, STANDARD_RIGHTS_ALL, NULL, NULL, NULL, (PKSTART_ROUTINE)TestThread, NULL);
-	DbgPrintEx(0, 0, "[dbg] Thread: 0x%08x\n", status);
+	DbgPrintEx(0, 0, "[dbg] Thread status: 0x%08x\n", status);
 
 	return status;
 }
